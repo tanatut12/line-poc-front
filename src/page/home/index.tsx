@@ -5,22 +5,20 @@ import axios from "axios";
 const Home = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [profile, setProfile] = useState<any>(null); // เพิ่ม state เก็บข้อมูล profile
+  const [profile, setProfile] = useState<any>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const LINE_OA_ID = "@@965fubnq";
 
-  // Initialize LIFF when component mounts
   useEffect(() => {
     const initializeLiff = async () => {
       try {
         await liff.init({ liffId: "2005584837-9ljv7l55" });
-        setIsLoggedIn(liff.isLoggedIn());
-        // ถ้า login แล้วให้ดึงข้อมูล profile มาเก็บไว้
         if (liff.isLoggedIn()) {
           const userProfile = await liff.getProfile();
           const friendFlag = await liff.getFriendship();
           setProfile({ ...userProfile, isFriend: friendFlag.friendFlag });
+          setIsLoggedIn(true);
         }
       } catch (err) {
         console.error("LIFF initialization failed", err);
@@ -30,51 +28,64 @@ const Home = () => {
     initializeLiff();
   }, []);
 
+  const callAddToCartAPI = async (userId: string, displayName: string) => {
+    const payload = {
+      customer: {
+        lineID: userId,
+        name: displayName,
+      },
+      items: [
+        {
+          ean: "8851111115037",
+          quantity: 5,
+        },
+      ],
+    };
+
+    console.log("Calling API with payload:", payload);
+    const response = await axios.post(
+      "http://localhost:4000/cart-item/gmol",
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    return response.data;
+  };
+
   const handleAddToCart = async () => {
     setIsLoading(true);
     setError(null);
 
     try {
       if (!liff.isLoggedIn()) {
-        sessionStorage.setItem("pendingCartAction", "true");
+        console.log("Step 1: Logging in...");
         liff.login();
         return;
       }
 
       const profile = await liff.getProfile();
       const friendFlag = await liff.getFriendship();
-
-      // เก็บข้อมูล profile ไว้แสดงผล
       setProfile({ ...profile, isFriend: friendFlag.friendFlag });
 
       if (!friendFlag.friendFlag) {
-        sessionStorage.setItem("pendingAddFriend", "true");
-        liff.openWindow({
-          url: `https://line.me/R/ti/p/${LINE_OA_ID}`,
-          external: true,
-        });
+        console.log("Step 2: Adding friend...");
+        window.location.href = `https://line.me/R/ti/p/${LINE_OA_ID}`;
         return;
       }
 
-      console.log(
-        "payload",
-        JSON.stringify(
-          {
-            userId: profile.userId,
-            displayName: profile.displayName,
-            pictureUrl: profile.pictureUrl,
-            statusMessage: profile.statusMessage,
-            isFriend: friendFlag.friendFlag,
-          },
-          null,
-          2
-        )
+      console.log("Step 3: Calling API...");
+      const result = await callAddToCartAPI(
+        profile.userId,
+        profile.displayName
       );
-
-      alert("Item added to cart and LINE OA will send you a notification!");
+      console.log("API Result:", result);
+      alert("Successfully added to cart!");
     } catch (err) {
       console.error("Error:", err);
-      setError(err instanceof Error ? err.message : "An error occurred");
+      setError("Failed to process. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -87,7 +98,30 @@ const Home = () => {
     window.location.reload();
   };
 
-  // ... rest of the code ...
+  useEffect(() => {
+    const handleRedirect = async () => {
+      if (!liff.isLoggedIn()) return;
+
+      try {
+        const profile = await liff.getProfile();
+        const friendFlag = await liff.getFriendship();
+
+        if (friendFlag.friendFlag) {
+          const result = await callAddToCartAPI(
+            profile.userId,
+            profile.displayName
+          );
+          console.log("API Result after redirect:", result);
+          alert("Successfully added to cart!");
+        }
+      } catch (err) {
+        console.error("Error after redirect:", err);
+        setError("Failed to process after redirect.");
+      }
+    };
+
+    handleRedirect();
+  }, [isLoggedIn]);
 
   return (
     <div className="h-screen flex justify-center items-center bg-slate-700">
@@ -121,7 +155,6 @@ const Home = () => {
           )}
         </div>
 
-        {/* แสดงข้อมูล Profile */}
         {profile && (
           <div className="mt-4 p-4 bg-white rounded-lg">
             <div className="flex items-center gap-4">
@@ -139,6 +172,12 @@ const Home = () => {
                 </p>
               </div>
             </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-4 p-4 bg-red-200 text-red-800 rounded-lg">
+            {error}
           </div>
         )}
       </div>
